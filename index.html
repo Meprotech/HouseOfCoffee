@@ -138,6 +138,39 @@
             transform: scale(1.1);
         }
 
+        /* Favorites Heart Button */
+        #heart-btn {
+            background: none;
+            border: none;
+            color: rgba(255, 255, 255, 0.4);
+            cursor: pointer;
+            padding: 5px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+            outline: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        #heart-btn.active {
+            color: #FF4757;
+            transform: scale(1.2);
+            filter: drop-shadow(0 0 8px rgba(255, 71, 87, 0.6));
+        }
+
+        .menu-item-heart {
+            margin-left: 8px;
+            font-size: 14px;
+            color: #FF4757;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .menu-item.favorited .menu-item-heart {
+            opacity: 1;
+        }
+
         .ingredient-popup {
             position: absolute;
             bottom: 40px;
@@ -975,6 +1008,9 @@ html, body {
     <div id="bottom-ui">
     <div id="model-info">
     <div class="model-name-wrapper">
+        <button id="heart-btn">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
+        </button>
         <div id="model-name">Loading...</div>
         <button class="info-icon" id="info-icon-btn">i</button>
         <div class="ingredient-popup">
@@ -1126,6 +1162,7 @@ html, body {
             const modelPrice = document.getElementById("model-price");
             const ingredientList = document.getElementById("ingredient-list");
             const infoIconBtn = document.getElementById("info-icon-btn");
+            const heartBtn = document.getElementById("heart-btn");
             const ingredientPopup = document.querySelector(".ingredient-popup");
             const assets = document.getElementById("dynamic-assets");
             const modelParent = document.getElementById("model-parent");
@@ -1142,6 +1179,7 @@ html, body {
             let currentModelIndex = 0;
             let modelsLoaded = false;
             let urlToId = {};
+            let favorites = JSON.parse(localStorage.getItem('hoc_favorites')) || [];
 
             const ZOOM_MIN = 1.5;
             const ZOOM_MAX = 5.0;
@@ -1232,10 +1270,17 @@ html, body {
                     activeModelEntity.setAttribute('scale', `${indScale} ${indScale} ${indScale}`);
                 }
 
-                if (modelData[currentModelIndex]) {
-                    modelName.textContent = modelData[currentModelIndex].name;
-                    modelPrice.textContent = modelData[currentModelIndex].price;
-                    ingredientList.textContent = modelData[currentModelIndex].ingredients || "Premium ingredients";
+                if (activeModel) {
+                    modelName.textContent = activeModel.name;
+                    modelPrice.textContent = activeModel.price;
+                    ingredientList.textContent = activeModel.ingredients || "Premium ingredients";
+                    
+                    // Update Heart UI
+                    if (favorites.includes(activeModel.name)) {
+                        heartBtn.classList.add('active');
+                    } else {
+                        heartBtn.classList.remove('active');
+                    }
                 }
 
                 // Reset zoom and rotation
@@ -1253,7 +1298,12 @@ html, body {
 
             // Set up button events
             function setupButtonEvents() {
+                const triggerHaptic = (dur = 10) => {
+                    if (navigator.vibrate) navigator.vibrate(dur);
+                };
+
                 const changeModel = (dir) => {
+                    triggerHaptic(15);
                     currentModelIndex = (currentModelIndex + dir + modelData.length) % modelData.length;
                     updateVisibleModel();
                 };
@@ -1263,6 +1313,7 @@ html, body {
                 
                 // Add back button event
                 backButton.addEventListener("click", () => {
+                    triggerHaptic(20);
                     scene.classList.remove('active');
                     sceneBg.classList.remove('active');
                     scrollLeftBtn.classList.remove('active');
@@ -1280,6 +1331,7 @@ html, body {
 
                 // Menu toggle events
                 function toggleSlideMenu() {
+                    triggerHaptic(15);
                     const isOpen = slideMenuPanel.classList.toggle('active');
                     slideMenuOverlay.classList.toggle('active');
                     
@@ -1300,6 +1352,13 @@ html, body {
                             itemDiv.classList.add('active');
                         } else {
                             itemDiv.classList.remove('active');
+                        }
+
+                        // Update heart status in menu
+                        if (favorites.includes(itemName)) {
+                            itemDiv.classList.add('favorited');
+                        } else {
+                            itemDiv.classList.remove('favorited');
                         }
                     });
                 }
@@ -1345,8 +1404,31 @@ html, body {
 
                 // Info Icon Toggle Logic
                 infoIconBtn.addEventListener('click', (e) => {
+                    triggerHaptic(10);
                     e.stopPropagation();
                     ingredientPopup.classList.toggle('active');
+                });
+
+                // Heart Button Logic
+                heartBtn.addEventListener('click', (e) => {
+                    triggerHaptic(30);
+                    const activeModel = modelData[currentModelIndex];
+                    if (!activeModel) return;
+
+                    const index = favorites.indexOf(activeModel.name);
+                    if (index === -1) {
+                        favorites.push(activeModel.name);
+                        heartBtn.classList.add('active');
+                    } else {
+                        favorites.splice(index, 1);
+                        heartBtn.classList.remove('active');
+                    }
+                    localStorage.setItem('hoc_favorites', JSON.stringify(favorites));
+                    
+                    // Refresh menu if open to show/hide hearts
+                    if (slideMenuPanel.classList.contains('active')) {
+                        updateMenuHighlights();
+                    }
                 });
 
                 // Close popup when clicking elsewhere
@@ -1411,8 +1493,13 @@ html, body {
                         const priceSpan = document.createElement('span');
                         priceSpan.className = 'menu-item-price';
                         priceSpan.textContent = '₹ ' + item.price;
+
+                        const heartSpan = document.createElement('span');
+                        heartSpan.className = 'menu-item-heart';
+                        heartSpan.innerHTML = '❤️';
                         
                         itemDiv.appendChild(nameSpan);
+                        itemDiv.appendChild(heartSpan);
                         itemDiv.appendChild(priceSpan);
 
                         // Highlight if this is the currently selected model
@@ -1420,6 +1507,11 @@ html, body {
                             (modelData[currentModelIndex].name.toLowerCase().includes(item.name.toLowerCase()) || 
                              item.name.toLowerCase().includes(modelData[currentModelIndex].name.toLowerCase()))) {
                             itemDiv.classList.add('active');
+                        }
+                        
+                        // Show heart if favorited
+                        if (favorites.includes(item.name)) {
+                            itemDiv.classList.add('favorited');
                         }
 
                         // Add click event to navigate to model
