@@ -214,7 +214,7 @@
 
         a-scene {
             background: transparent;
-            display: none;
+            visibility: hidden;
             opacity: 0;
             transition: opacity 0.5s ease;
             position: absolute;
@@ -226,7 +226,7 @@
         }
 
         a-scene.active {
-            display: block;
+            visibility: visible;
             opacity: 1;
         }
 
@@ -1135,6 +1135,7 @@ html, body {
             let modelData = [];
             let currentModelIndex = 0;
             let modelsLoaded = false;
+            let urlToId = {};
 
             const ZOOM_MIN = 1.5;
             const ZOOM_MAX = 5.0;
@@ -1215,7 +1216,12 @@ html, body {
                 const activeModelEntity = document.getElementById('active-model');
                 
                 if (activeModel && activeModelEntity) {
-                    activeModelEntity.setAttribute('gltf-model', activeModel.url);
+                    const assetId = urlToId[activeModel.url];
+                    if (assetId) {
+                        activeModelEntity.setAttribute('gltf-model', `#${assetId}`);
+                    } else {
+                        activeModelEntity.setAttribute('gltf-model', activeModel.url);
+                    }
                     const indScale = activeModel.scale ? activeModel.scale : 1.0;
                     activeModelEntity.setAttribute('scale', `${indScale} ${indScale} ${indScale}`);
                 }
@@ -1251,7 +1257,6 @@ html, body {
                 
                 // Add back button event
                 backButton.addEventListener("click", () => {
-                    scene.style.display = 'none'; // Stop rendering
                     scene.classList.remove('active');
                     sceneBg.classList.remove('active');
                     scrollLeftBtn.classList.remove('active');
@@ -1424,6 +1429,14 @@ html, body {
 
             // Create model entities
             function createModelEntities(models) {
+                // Create single active model entity if it doesn't exist
+                if (!document.getElementById('active-model')) {
+                    const entity = document.createElement('a-entity');
+                    entity.setAttribute('id', 'active-model');
+                    entity.setAttribute('position', '0 0 0');
+                    modelParent.appendChild(entity);
+                }
+
                 return new Promise((resolve) => {
                     const uniqueUrls = [...new Set(models.map(m => m.url).filter(Boolean))];
                     let loadedCount = 0;
@@ -1433,44 +1446,48 @@ html, body {
                         return;
                     }
 
+                    // Safety timeout to ensure app starts even if an asset fails
+                    const timeout = setTimeout(() => {
+                        console.warn("Preloading timed out. Starting app anyway.");
+                        resolve();
+                    }, 5000);
+
                     // Preload unique assets
                     uniqueUrls.forEach((url, index) => {
+                        const id = `asset-${index}`;
+                        urlToId[url] = id;
+                        
                         const assetItem = document.createElement('a-asset-item');
-                        assetItem.setAttribute('id', `asset-${index}`);
+                        assetItem.setAttribute('id', id);
                         assetItem.setAttribute('src', url);
                         
                         assetItem.addEventListener('loaded', () => {
                             loadedCount++;
                             loadingText.textContent = `Loading assets (${loadedCount}/${uniqueUrls.length})...`;
-                            if (loadedCount === uniqueUrls.length) resolve();
+                            if (loadedCount === uniqueUrls.length) {
+                                clearTimeout(timeout);
+                                resolve();
+                            }
                         });
                         
                         assetItem.addEventListener('error', () => {
+                            console.error(`Error loading asset: ${url}`);
                             loadedCount++;
-                            if (loadedCount === uniqueUrls.length) resolve();
+                            if (loadedCount === uniqueUrls.length) {
+                                clearTimeout(timeout);
+                                resolve();
+                            }
                         });
 
                         assets.appendChild(assetItem);
                     });
-
-                    // Create single active model entity
-                    const entity = document.createElement('a-entity');
-                    entity.setAttribute('id', 'active-model');
-                    entity.setAttribute('position', '0 0 0');
-                    modelParent.appendChild(entity);
-                    
-                    // If no assets to wait for, resolve now
-                    if (uniqueUrls.length === 0) resolve();
                 });
             }
 
             // Show 3D viewer
             function show3DViewer() {
                 // Make scene visible
-                scene.style.display = 'block';
-                setTimeout(() => {
-                    scene.classList.add('active');
-                }, 10);
+                scene.classList.add('active');
                 sceneBg.classList.add('active');
                 
                 // Setup UI elements
