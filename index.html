@@ -200,7 +200,7 @@
             left: 0;
             width: 100%;
             height: 100%;
-            background: url('menu.jpg') no-repeat center center;
+            background: url('menu.webp') no-repeat center center;
             background-size: cover;
             filter: blur(15px) brightness(0.4);
             z-index: 1;
@@ -214,7 +214,7 @@
 
         a-scene {
             background: transparent;
-            display: block;
+            display: none;
             opacity: 0;
             transition: opacity 0.5s ease;
             position: absolute;
@@ -226,6 +226,7 @@
         }
 
         a-scene.active {
+            display: block;
             opacity: 1;
         }
 
@@ -273,7 +274,7 @@
             width: 100%;
             height: 100vh;
             overflow: auto;
-            background: linear-gradient(rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.4)), url('main.png') no-repeat center center;
+            background: linear-gradient(rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.4)), url('main.webp') no-repeat center center;
             background-size: cover;
             display: flex;
             flex-direction: column;
@@ -299,6 +300,10 @@
         @keyframes floatLogo {
             0%, 100% { transform: translateY(0) rotateX(0deg); }
             50% { transform: translateY(-10px) rotateX(5deg); }
+        }
+
+        .logo-container, .grid-button, .button-icon {
+            will-change: transform;
         }
 
         .logo-name {
@@ -505,6 +510,8 @@
                 bottom: 45px;
                 width: 180px;
                 font-size: 12px;
+                backdrop-filter: blur(10px); /* Reduced blur for performance */
+                -webkit-backdrop-filter: blur(10px);
             }
             .info-icon {
                 width: 18px;
@@ -883,7 +890,7 @@ html, body {
     <body><div id="scroll-wrapper">
     <div id="welcome-screen">
     <div class="logo-container">
-    <img alt="Logo" id="logo" src="logo.png"/>
+    <img alt="Logo" id="logo" src="logo.webp"/>
     </div>
     <div class="button-container">
     <button class="grid-button" id="maps-button">
@@ -891,11 +898,11 @@ html, body {
                     Maps
                 </button>
     <button class="grid-button" id="menu-3d-button">
-    <img alt="Menu" class="button-icon" src="3DMenuicon.png"/>
+    <img alt="Menu" class="button-icon" src="3DMenuicon.webp"/>
                     3D Menu
                 </button>
     <button class="grid-button" id="view-pdf-button">
-    <img alt="Menu" class="button-icon" src="logo.png"/>
+    <img alt="Menu" class="button-icon" src="logo.webp"/>
                     Menu
                 </button>
     <button class="grid-button" id="instagram-button">
@@ -975,7 +982,7 @@ html, body {
     </div>
     </div>
     <div id="scene-bg"></div>
-    <a-scene embedded="">
+    <a-scene embedded="" loading-screen="enabled: false" renderer="antialias: false; precision: medium; devicePixelRatio: 1;">
     <a-assets id="dynamic-assets"></a-assets>
     <a-entity id="cameraRig">
     <a-camera look-controls="enabled: false" position="0 1.6 0"></a-camera>
@@ -1127,7 +1134,6 @@ html, body {
 
             let modelData = [];
             let currentModelIndex = 0;
-            let modelEntities = [];
             let modelsLoaded = false;
 
             const ZOOM_MIN = 1.5;
@@ -1205,9 +1211,14 @@ html, body {
 
             // Update visible model
             function updateVisibleModel() {
-                modelEntities.forEach((model, i) => {
-                    model.setAttribute('visible', i === currentModelIndex);
-                });
+                const activeModel = modelData[currentModelIndex];
+                const activeModelEntity = document.getElementById('active-model');
+                
+                if (activeModel && activeModelEntity) {
+                    activeModelEntity.setAttribute('gltf-model', activeModel.url);
+                    const indScale = activeModel.scale ? activeModel.scale : 1.0;
+                    activeModelEntity.setAttribute('scale', `${indScale} ${indScale} ${indScale}`);
+                }
 
                 if (modelData[currentModelIndex]) {
                     modelName.textContent = modelData[currentModelIndex].name;
@@ -1231,7 +1242,7 @@ html, body {
             // Set up button events
             function setupButtonEvents() {
                 const changeModel = (dir) => {
-                    currentModelIndex = (currentModelIndex + dir + modelEntities.length) % modelEntities.length;
+                    currentModelIndex = (currentModelIndex + dir + modelData.length) % modelData.length;
                     updateVisibleModel();
                 };
 
@@ -1240,7 +1251,7 @@ html, body {
                 
                 // Add back button event
                 backButton.addEventListener("click", () => {
-                    // Hide 3D viewer and show welcome screen
+                    scene.style.display = 'none'; // Stop rendering
                     scene.classList.remove('active');
                     sceneBg.classList.remove('active');
                     scrollLeftBtn.classList.remove('active');
@@ -1414,62 +1425,52 @@ html, body {
             // Create model entities
             function createModelEntities(models) {
                 return new Promise((resolve) => {
+                    const uniqueUrls = [...new Set(models.map(m => m.url).filter(Boolean))];
                     let loadedCount = 0;
-                    const totalModels = models.filter(model => model.url).length;
                     
-                    if (totalModels === 0) {
+                    if (uniqueUrls.length === 0) {
                         resolve();
                         return;
                     }
-                    
-                    modelEntities = models.map((model, index) => {
-                        if (!model.url) {
-                            return null;
-                        }
 
-                        const assetId = `model-${index}`;
+                    // Preload unique assets
+                    uniqueUrls.forEach((url, index) => {
                         const assetItem = document.createElement('a-asset-item');
-                        assetItem.setAttribute('id', assetId);
-                        assetItem.setAttribute('src', model.url);
-                        assets.appendChild(assetItem);
+                        assetItem.setAttribute('id', `asset-${index}`);
+                        assetItem.setAttribute('src', url);
+                        
+                        assetItem.addEventListener('loaded', () => {
+                            loadedCount++;
+                            loadingText.textContent = `Loading assets (${loadedCount}/${uniqueUrls.length})...`;
+                            if (loadedCount === uniqueUrls.length) resolve();
+                        });
+                        
+                        assetItem.addEventListener('error', () => {
+                            loadedCount++;
+                            if (loadedCount === uniqueUrls.length) resolve();
+                        });
 
-                        const entity = document.createElement('a-entity');
-                        entity.setAttribute('gltf-model', `#${assetId}`);
-                        entity.setAttribute('position', '0 0 0');
-                        entity.setAttribute('visible', 'false');
-                        entity.setAttribute('class', 'model-entity');
-                        
-                        // Apply individual scale if provided in json, otherwise default to 1.0
-                        const indScale = model.scale ? model.scale : 1.0;
-                        entity.setAttribute('scale', `${indScale} ${indScale} ${indScale}`);
-                        
-                        entity.addEventListener('model-loaded', () => {
-                            loadedCount++;
-                            loadingText.textContent = `Loading models (${loadedCount}/${totalModels})...`;
-                            
-                            if (loadedCount === totalModels) {
-                                resolve();
-                            }
-                        });
-                        
-                        entity.addEventListener('error', () => {
-                            console.error(`Failed to load model: ${model.url}`);
-                            loadedCount++;
-                            if (loadedCount === totalModels) {
-                                resolve();
-                            }
-                        });
-                        
-                        modelParent.appendChild(entity);
-                        return entity;
-                    }).filter(entity => entity !== null);
+                        assets.appendChild(assetItem);
+                    });
+
+                    // Create single active model entity
+                    const entity = document.createElement('a-entity');
+                    entity.setAttribute('id', 'active-model');
+                    entity.setAttribute('position', '0 0 0');
+                    modelParent.appendChild(entity);
+                    
+                    // If no assets to wait for, resolve now
+                    if (uniqueUrls.length === 0) resolve();
                 });
             }
 
             // Show 3D viewer
             function show3DViewer() {
                 // Make scene visible
-                scene.classList.add('active');
+                scene.style.display = 'block';
+                setTimeout(() => {
+                    scene.classList.add('active');
+                }, 10);
                 sceneBg.classList.add('active');
                 
                 // Setup UI elements
