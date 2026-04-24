@@ -1383,22 +1383,19 @@
                     modelData = await fetchGoogleSheetCSV();
 
                     if (modelData.length > 0) {
-                        // Create all model entities but keep them hidden
-                        await createModelEntities(modelData);
+                        // Create the single active-model entity (no assets downloaded yet)
+                        initModelEntity();
                         modelsLoaded = true;
 
                         viewPdfButton.addEventListener('click', () => {
-                            // Open Zomato Menu in new tab
                             window.open('https://tr.ee/G5WNJs2a1O', '_blank');
                         });
 
                         view3dButton.addEventListener('click', () => {
-                            // Hide welcome screen and show 3D viewer
                             welcomeScreen.style.display = 'none';
                             show3DViewer();
                         });
 
-                        // Set up WhatsApp button click handler
                         whatsappButton.addEventListener('click', () => {
                             const phoneNumber = '919726491000';
                             const message = 'Hello HOUSE OF COFFEE, I have a question about your products';
@@ -1418,12 +1415,10 @@
                         });
 
                         reviewButton.addEventListener('click', () => {
-                            // Link to Google Review Page
                             window.open('https://www.google.com/search?sca_esv=62d5690ced025e5a&sxsrf=ANbL-n5KsRDk4I0ADWv_mlvz8RreY2F4Sg:1776859838507&si=AL3DRZEsmMGCryMMFSHJ3StBhOdZ2-6yYkXd_doETEE1OR-qOTZ-eSnPYR0_HMQNTLfUHZ5IrVjdPWhQOmDeYtv7ESlXtRE1VCpOLAYNKP9aqPzir_1dIINEDaraYWpSAlJj4pH2huFo&q=HOUSE+OF+COFFEE+Reviews&sa=X&ved=2ahUKEwj-svXbtoGUAxW8gK8BHTqLBqgQ0bkNegQILxAF&biw=1536&bih=730&dpr=1.25', '_blank');
                         });
 
                         mapsButton.addEventListener('click', () => {
-                            // Link to Google Maps location
                             window.open('https://maps.app.goo.gl/Pw16gKxxsYMzHjJA9?g_st=ac', '_blank');
                         });
 
@@ -1442,46 +1437,117 @@
                     }
                 }
 
-                // Update visible model
-                function updateVisibleModel() {
+                // --- Lazy loading helpers ---
+
+                // Create the single reusable model entity (no asset loaded yet)
+                function initModelEntity() {
+                    if (!document.getElementById('active-model')) {
+                        const entity = document.createElement('a-entity');
+                        entity.setAttribute('id', 'active-model');
+                        entity.setAttribute('position', '0 0 0');
+                        modelParent.appendChild(entity);
+                    }
+                }
+
+                // Lazily register a URL as an <a-asset-item> and return a Promise that
+                // resolves with its id once the browser has downloaded the file.
+                function ensureAssetLoaded(url) {
+                    // Already cached — resolve immediately
+                    if (urlToId[url]) return Promise.resolve(urlToId[url]);
+
+                    return new Promise((resolve, reject) => {
+                        const index = Object.keys(urlToId).length;
+                        const id = `asset-${index}`;
+                        urlToId[url] = id;
+
+                        const assetItem = document.createElement('a-asset-item');
+                        assetItem.setAttribute('id', id);
+                        assetItem.setAttribute('src', url);
+
+                        const timeout = setTimeout(() => {
+                            console.warn(`Asset load timed out: ${url}`);
+                            resolve(id); // continue anyway
+                        }, 15000);
+
+                        assetItem.addEventListener('loaded', () => {
+                            clearTimeout(timeout);
+                            resolve(id);
+                        });
+                        assetItem.addEventListener('error', () => {
+                            clearTimeout(timeout);
+                            console.error(`Failed to load asset: ${url}`);
+                            resolve(id); // still resolve so UI isn't stuck
+                        });
+
+                        assets.appendChild(assetItem);
+                    });
+                }
+
+                // Silently prefetch a model in the background (fire-and-forget)
+                function prefetchModel(index) {
+                    const model = modelData[index];
+                    if (model && model.url && !urlToId[model.url]) {
+                        ensureAssetLoaded(model.url).catch(() => {});
+                    }
+                }
+
+                // Update visible model — loads on demand, then prefetches neighbours
+                async function updateVisibleModel() {
                     const activeModel = modelData[currentModelIndex];
                     const activeModelEntity = document.getElementById('active-model');
+                    if (!activeModel || !activeModelEntity) return;
 
-                    if (activeModel && activeModelEntity) {
-                        const assetId = urlToId[activeModel.url];
-                        if (assetId) {
-                            activeModelEntity.setAttribute('gltf-model', `#${assetId}`);
-                        } else {
-                            activeModelEntity.setAttribute('gltf-model', activeModel.url);
-                        }
-                        const indScale = activeModel.scale ? activeModel.scale : 1.0;
-                        activeModelEntity.setAttribute('scale', `${indScale} ${indScale} ${indScale}`);
-                    }
-
-                    if (activeModel) {
-                        modelName.textContent = activeModel.name;
-                        modelPrice.textContent = activeModel.price;
-                        ingredientList.textContent = activeModel.ingredients || "Premium ingredients";
-
-                        // Update Heart UI
-                        if (favorites.includes(activeModel.name)) {
-                            heartBtn.classList.add('active');
-                        } else {
-                            heartBtn.classList.remove('active');
-                        }
+                    // Update text UI immediately (feels responsive)
+                    modelName.textContent = activeModel.name;
+                    modelPrice.textContent = activeModel.price;
+                    ingredientList.textContent = activeModel.ingredients || 'Premium ingredients';
+                    if (favorites.includes(activeModel.name)) {
+                        heartBtn.classList.add('active');
+                    } else {
+                        heartBtn.classList.remove('active');
                     }
 
                     // Reset zoom and rotation
                     zoomFactor = ZOOM_DEFAULT;
                     modelParent.setAttribute('scale', `${zoomFactor} ${zoomFactor} ${zoomFactor}`);
-
                     const comp = modelParent.components['drag-rotate'];
                     if (comp) {
-                        comp.pitch = THREE.MathUtils.degToRad(20); // Keep static food viewing angle
+                        comp.pitch = THREE.MathUtils.degToRad(20);
                         comp.yaw = 0;
                         comp.lastInteractionTime = Date.now();
                         comp.updateRotation();
                     }
+
+                    if (!activeModel.url) return;
+
+                    // If already cached, apply instantly
+                    if (urlToId[activeModel.url]) {
+                        activeModelEntity.setAttribute('gltf-model', `#${urlToId[activeModel.url]}`);
+                        const s = activeModel.scale || 1.0;
+                        activeModelEntity.setAttribute('scale', `${s} ${s} ${s}`);
+                        // Prefetch neighbours in background
+                        const total = modelData.length;
+                        prefetchModel((currentModelIndex + 1) % total);
+                        prefetchModel((currentModelIndex - 1 + total) % total);
+                        return;
+                    }
+
+                    // Not cached yet — show inline spinner
+                    loadingText.textContent = 'Loading model...';
+                    loadingScreen.style.display = 'flex';
+
+                    const id = await ensureAssetLoaded(activeModel.url);
+
+                    loadingScreen.style.display = 'none';
+
+                    activeModelEntity.setAttribute('gltf-model', `#${id}`);
+                    const s = activeModel.scale || 1.0;
+                    activeModelEntity.setAttribute('scale', `${s} ${s} ${s}`);
+
+                    // Prefetch neighbours in background
+                    const total = modelData.length;
+                    prefetchModel((currentModelIndex + 1) % total);
+                    prefetchModel((currentModelIndex - 1 + total) % total);
                 }
 
                 // Set up button events
@@ -1727,62 +1793,7 @@
                     });
                 }
 
-                // Create model entities
-                function createModelEntities(models) {
-                    // Create single active model entity if it doesn't exist
-                    if (!document.getElementById('active-model')) {
-                        const entity = document.createElement('a-entity');
-                        entity.setAttribute('id', 'active-model');
-                        entity.setAttribute('position', '0 0 0');
-                        modelParent.appendChild(entity);
-                    }
-
-                    return new Promise((resolve) => {
-                        const uniqueUrls = [...new Set(models.map(m => m.url).filter(Boolean))];
-                        let loadedCount = 0;
-
-                        if (uniqueUrls.length === 0) {
-                            resolve();
-                            return;
-                        }
-
-                        // Safety timeout to ensure app starts even if an asset fails
-                        const timeout = setTimeout(() => {
-                            console.warn("Preloading timed out. Starting app anyway.");
-                            resolve();
-                        }, 5000);
-
-                        // Preload unique assets
-                        uniqueUrls.forEach((url, index) => {
-                            const id = `asset-${index}`;
-                            urlToId[url] = id;
-
-                            const assetItem = document.createElement('a-asset-item');
-                            assetItem.setAttribute('id', id);
-                            assetItem.setAttribute('src', url);
-
-                            assetItem.addEventListener('loaded', () => {
-                                loadedCount++;
-                                loadingText.textContent = `Loading assets (${loadedCount}/${uniqueUrls.length})...`;
-                                if (loadedCount === uniqueUrls.length) {
-                                    clearTimeout(timeout);
-                                    resolve();
-                                }
-                            });
-
-                            assetItem.addEventListener('error', () => {
-                                console.error(`Error loading asset: ${url}`);
-                                loadedCount++;
-                                if (loadedCount === uniqueUrls.length) {
-                                    clearTimeout(timeout);
-                                    resolve();
-                                }
-                            });
-
-                            assets.appendChild(assetItem);
-                        });
-                    });
-                }
+                // (createModelEntities replaced by lazy ensureAssetLoaded + initModelEntity above)
 
                 // Show 3D viewer
                 function show3DViewer() {
