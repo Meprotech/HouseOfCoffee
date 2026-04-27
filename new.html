@@ -146,14 +146,13 @@
             <a-asset-item id="coffee-model" src="assets/logo.glb"></a-asset-item>
         </a-assets>
 
-        <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+        <a-camera position="90 0 0" look-controls="enabled: false"></a-camera>
 
         <a-entity mindar-image-target="targetIndex: 0">
-            <a-entity gltf-model="#coffee-model" scale="0.1 0.1 0.1" position="0 0 0" rotation="90 0 0"
+            <a-entity gltf-model="#coffee-model" scale="0.1 0.1 0.1" position="0 0 0" rotation="100 0 0"
                 animation="property: position; from: 0 0 0; to: 0 0 0.08; loop: true; dir: alternate; dur: 700; easing: easeInOutSine">
             </a-entity>
         </a-entity>
-
         <!-- Lighting -->
         <a-entity light="type: ambient; intensity: 1.5"></a-entity>
         <a-entity light="type: directional; intensity: 1" position="-1 1 1"></a-entity>
